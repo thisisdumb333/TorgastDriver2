@@ -1,0 +1,77 @@
+;
+; TorgastDriver.inf
+;
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System ; TODO: specify appropriate Class
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318} ; TODO: specify appropriate ClassGuid
+Provider=%ManufacturerName%
+CatalogFile=TorgastDriver.cat
+DriverVer= ; TODO: set DriverVer in stampinf property pages
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 12
+TorgastDriver_Device_CoInstaller_CopyFiles = 11
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+TorgastDriver.sys  = 1,,
+WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll=1 ; make sure the number matches with SourceDisksNames
+
+;*****************************************
+; Install Section
+;*****************************************
+
+[Manufacturer]
+%ManufacturerName%=Standard,NT$ARCH$
+
+[Standard.NT$ARCH$]
+%TorgastDriver.DeviceDesc%=TorgastDriver_Device, Root\TorgastDriver ; TODO: edit hw-id
+
+[TorgastDriver_Device.NT]
+CopyFiles=Drivers_Dir
+
+[Drivers_Dir]
+TorgastDriver.sys
+
+;-------------- Service installation
+[TorgastDriver_Device.NT.Services]
+AddService = TorgastDriver,%SPSVCINST_ASSOCSERVICE%, TorgastDriver_Service_Inst
+
+; -------------- TorgastDriver driver install sections
+[TorgastDriver_Service_Inst]
+DisplayName    = %TorgastDriver.SVCDESC%
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\TorgastDriver.sys
+
+;
+;--- TorgastDriver_Device Coinstaller installation ------
+;
+
+[TorgastDriver_Device.NT.CoInstallers]
+AddReg=TorgastDriver_Device_CoInstaller_AddReg
+CopyFiles=TorgastDriver_Device_CoInstaller_CopyFiles
+
+[TorgastDriver_Device_CoInstaller_AddReg]
+HKR,,CoInstallers32,0x00010000, "WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll,WdfCoInstaller"
+
+[TorgastDriver_Device_CoInstaller_CopyFiles]
+WdfCoInstaller$KMDFCOINSTALLERVERSION$.dll
+
+[TorgastDriver_Device.NT.Wdf]
+KmdfService =  TorgastDriver, TorgastDriver_wdfsect
+[TorgastDriver_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+SPSVCINST_ASSOCSERVICE= 0x00000002
+ManufacturerName="<Your manufacturer name>" ;TODO: Replace with your manufacturer name
+DiskName = "TorgastDriver Installation Disk"
+TorgastDriver.DeviceDesc = "TorgastDriver Device"
+TorgastDriver.SVCDESC = "TorgastDriver Service"
