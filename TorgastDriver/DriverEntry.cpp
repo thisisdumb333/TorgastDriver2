@@ -1,4 +1,7 @@
 #include "Hook.h"
+
+unsigned long long g_startup_time;
+
 /// <summary>
 /// These are the big important functions that will either get you fucked asap or strip handles, but there is so much more you can do
 /// </summary>
@@ -64,6 +67,7 @@ void Hook::ImageNotifyRoutine(PUNICODE_STRING FullImageName, HANDLE ProcID, PIMA
 void Entry()
 {
 	LogCall();
+	KeQuerySystemTime(&g_startup_time);
 	Hook::InitHook();
 	HWID::InitializeHWID();
 	Log("Ready");

@@ -3,9 +3,6 @@
 
  void Hook::MemoryHandler(pKernelRequest Request)
 {
-	//LogCall();
-
-
 	PEPROCESS targetProcess;
 	NTSTATUS status;
 
@@ -331,32 +328,166 @@ NTSTATUS HWID::InitializeHWID()
 	oIOCTL = driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL];
 	driverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DrvIOCTLDispatcher;
 
+	ObDereferenceObject(driverObject);
+
 	return status;
+}
+
+/// <summary>
+/// https://github.com/namazso/hdd_serial_spoofer/blob/3622688757331b7f728a289cf44d19d3a9642d96/hwid.cpp#L44
+/// </summary>
+/// <param name="device_object"></param>
+/// <param name="irp"></param>
+/// <param name="context"></param>
+/// <returns></returns>
+NTSTATUS HWID::CompletedStorageQuery(PDEVICE_OBJECT device_object, PIRP irp, PVOID context)
+{
+	if (!context)
+	{
+		Log("%s %d : Context was nullptr", __FUNCTION__, __LINE__);
+		return STATUS_SUCCESS;
+	}
+
+	const auto request = (REQUEST_STRUCT*)context;
+	const auto buffer_length = request->OutputBufferLength;
+	const auto buffer = (PSTORAGE_DEVICE_DESCRIPTOR)request->SystemBuffer;
+	const auto old_routine = request->OldRoutine;
+	const auto old_context = request->OldContext;
+	ExFreePool(context);
+
+	do
+	{
+		if (buffer_length < FIELD_OFFSET(STORAGE_DEVICE_DESCRIPTOR, RawDeviceProperties))
+			break;	// They just want the size
+
+		if (buffer->SerialNumberOffset == 0)
+		{
+			Log("%s %d : Device doesn't have unique ID", __FUNCTION__, __LINE__);
+			break;
+		}
+
+		if (buffer_length < FIELD_OFFSET(STORAGE_DEVICE_DESCRIPTOR, RawDeviceProperties) + buffer->RawPropertiesLength
+			|| buffer->SerialNumberOffset < FIELD_OFFSET(STORAGE_DEVICE_DESCRIPTOR, RawDeviceProperties)
+			|| buffer->SerialNumberOffset >= buffer_length
+			)
+		{
+			Log("%s %d : Malformed buffer (should never happen) size: %d", __FUNCTION__, __LINE__, buffer_length);
+		}
+		else
+		{
+			const auto serial = (char*)buffer + buffer->SerialNumberOffset;
+			Log("%s %d : Original Serial: %s", __FUNCTION__, __LINE__, serial);
+			SpoofSerial(serial, false);
+			Log("%s %d : Spoofed Serial: %s", __FUNCTION__, __LINE__, serial);
+		}
+	} while (false);
+
+	// Call next completion routine (if any)
+	if (irp->StackCount > 1ul && old_routine)
+		return old_routine(device_object, irp, old_context);
+
+	return STATUS_SUCCESS;
+}
+
+/// <summary>
+/// https://github.com/namazso/hdd_serial_spoofer/blob/3622688757331b7f728a289cf44d19d3a9642d96/hwid.cpp#L98
+/// </summary>
+/// <param name="device_object"></param>
+/// <param name="irp"></param>
+/// <param name="context"></param>
+/// <returns></returns>
+NTSTATUS HWID::CompletedSmart(PDEVICE_OBJECT device_object, PIRP irp, PVOID context)
+{
+	UNREFERENCED_PARAMETER(device_object);
+
+	if (!context)
+	{
+		Log("%s %d : Context was nullptr", __FUNCTION__, __LINE__);
+		return STATUS_SUCCESS;
+	}
+
+	const auto request = (HWID::REQUEST_STRUCT*)context;
+	const auto buffer_length = request->OutputBufferLength;
+	const auto buffer = (SENDCMDOUTPARAMS*)request->SystemBuffer;
+	//const auto old_routine = request->OldRoutine;
+	//const auto old_context = request->OldContext;
+	ExFreePool(context);
+
+	if (buffer_length < FIELD_OFFSET(SENDCMDOUTPARAMS, bBuffer)
+		|| FIELD_OFFSET(SENDCMDOUTPARAMS, bBuffer) + buffer->cBufferSize > buffer_length
+		|| buffer->cBufferSize < sizeof(HWID::IDINFO)
+		)
+	{
+		Log("%s %d : Malformed buffer (should never happen) size: %d", __FUNCTION__, __LINE__, buffer_length);
+	}
+	else
+	{
+		const auto info = (HWID::IDINFO*)buffer->bBuffer;
+		const auto serial = info->sSerialNumber;
+		Log("%s %d : Original Serial: %s", __FUNCTION__, __LINE__, serial);
+		SpoofSerial(serial, true);
+		Log("%s %d : Spoofed Serial: %s", __FUNCTION__, __LINE__, serial);
+	}
+
+	return irp->IoStatus.Status;
+}
+
+/// <summary>
+/// https://github.com/namazso/hdd_serial_spoofer/blob/3622688757331b7f728a289cf44d19d3a9642d96/hwid.cpp#L149
+/// </summary>
+/// <param name="irp"></param>
+/// <param name="ioc"></param>
+/// <param name="routine"></param>
+void HWID::DoCompletionHook(PIRP irp, PIO_STACK_LOCATION ioc, PIO_COMPLETION_ROUTINE routine)
+{
+	// Register CompletionRotuine
+	ioc->Control = 0;
+	ioc->Control |= SL_INVOKE_ON_SUCCESS;
+
+	// Save old completion routine
+	// Yes we rewrite any routine to be on success only
+	// and somehow it doesnt cause disaster
+	const auto old_context = ioc->Context;
+	ioc->Context = ExAllocatePool(NonPagedPool, sizeof(HWID::REQUEST_STRUCT));
+	const auto request = (HWID::REQUEST_STRUCT*)ioc->Context;
+	request->OldRoutine = ioc->CompletionRoutine;
+	request->OldContext = old_context;
+	request->OutputBufferLength = ioc->Parameters.DeviceIoControl.OutputBufferLength;
+	request->SystemBuffer = irp->AssociatedIrp.SystemBuffer;
+
+	// Setup our function to be called upon completion of the IRP
+	ioc->CompletionRoutine = routine;
 }
 
 
 NTSTATUS HWID::DrvIOCTLDispatcher(PDEVICE_OBJECT Device, PIRP Irp)
 {
-	const char* SourceName = (const char*)Utility::GetProcessNameFromPid(PsGetCurrentProcessId());
 	PIO_STACK_LOCATION  irpSp;// Pointer to current stack location
 	irpSp = IoGetCurrentIrpStackLocation(Irp);
-	if (strcmp(SourceName, "LaunchPad.exe") == 0)
-	{
-		Log("Launchpad attempted to call Disk");
 
-		if (irpSp->Parameters.DeviceIoControl.IoControlCode == 0x2d1400)
-		{
-			return STATUS_ACCESS_DENIED;
+	switch (irpSp->Parameters.DeviceIoControl.IoControlCode)
+	{
+	// 0x2d1400
+	case IOCTL_STORAGE_QUERY_PROPERTY:
+	{
+		const auto query = (PSTORAGE_PROPERTY_QUERY)Irp->AssociatedIrp.SystemBuffer;
+
+		if (query->PropertyId == StorageDeviceProperty) {
+			const char* SourceName = (const char*)Utility::GetProcessNameFromPid(PsGetCurrentProcessId());
+			Log("%s called Disk using IOCTL_STORAGE_QUERY_PROPERTY, propId == StorageDeviceProperty", SourceName);
+			DoCompletionHook(Irp, irpSp, &CompletedStorageQuery);
 		}
 	}
-	if (strcmp(SourceName, "PlanetSide2_x6") == 0)
+	break;
+	case SMART_RCV_DRIVE_DATA:
 	{
-		Log("Planetside 2 attempted to call Disk");
-		if (irpSp->Parameters.DeviceIoControl.IoControlCode == 0x2d1400)
-		{
-			return STATUS_ACCESS_DENIED;
-		}
-	}		   
-
+		const char* SourceName = (const char*)Utility::GetProcessNameFromPid(PsGetCurrentProcessId());
+		Log("%s called Disk using SMART_RCV_DRIVE_DATA", SourceName);
+		DoCompletionHook(Irp, irpSp, &CompletedSmart);
+	}
+		break;
+	default:
+		break;
+	}
 	return oIOCTL(Device, Irp);
 }

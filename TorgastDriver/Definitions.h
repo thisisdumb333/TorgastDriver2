@@ -1,6 +1,7 @@
 #pragma once
 #include "Undocumented.h"
 #define Log(format, ...) DbgPrint("[*]  "  format "\n", __VA_ARGS__)
+#define LogNoNewLine(format, ...) DbgPrint(format " ", __VA_ARGS__)
 #define LogCall() DbgPrint("[*] %s called\n", __FUNCTION__)
 #define LogInfo(format, ...) DbgPrint("\t\t\t\t\t\t[+]  "  format "\n", __VA_ARGS__)
 #define LogError(format, ...) DbgPrint("[-] "  format "\n", __VA_ARGS__)
