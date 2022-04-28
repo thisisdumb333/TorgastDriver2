@@ -24,11 +24,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <Inf Include="TorgastDriver.inf">
-      <Filter>Driver Files</Filter>
-    </Inf>
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="DriverEntry.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -40,6 +35,9 @@
     </ClCompile>
     <ClCompile Include="Definitions.cpp">
       <Filter>Def</Filter>
+    </ClCompile>
+    <ClCompile Include="SerialGen.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -54,6 +52,9 @@
     </ClInclude>
     <ClInclude Include="Definitions.h">
       <Filter>Def</Filter>
+    </ClInclude>
+    <ClInclude Include="Fnv.hpp">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
